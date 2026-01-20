@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.library'
+    id 'kotlin-android'
+}
+
+android {
+    compileSdk 34
+
+    namespace = 'com.verveads.verve_ads'
+
+    defaultConfig {
+        minSdk 21
+        targetSdk 34
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    packagingOptions {
+        exclude 'META-INF/proguard/androidx-*.pro'
+        exclude 'META-INF/proguard/kotlin-stdlib.pro'
+    }
+}
+
+dependencies {
+    // Flutter
+    implementation 'androidx.annotation:annotation:1.6.0'
+
+    // HyBid SDK from Verve
+    implementation 'net.pubnative:hybid.sdk:3.7.1'
+    implementation 'net.pubnative:hybid.adapters.dfp:3.7.1'
+    implementation 'net.pubnative:hybid.adapters.admob:3.7.1'
+
+    // Android Support
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.12.0'
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}

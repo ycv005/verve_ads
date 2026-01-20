@@ -1,0 +1,29 @@
+name: verve_ads
+description: "A comprehensive Flutter plugin for integrating Verve (HyBid) SDK. Provides configurable and scalable wrapper with support for native ads, advanced targeting, and complete monetization capabilities."
+version: 0.0.1
+homepage: https://github.com/yourusername/verve_ads
+repository: https://github.com/yourusername/verve_ads
+issue_tracker: https://github.com/yourusername/verve_ads/issues
+
+environment:
+  sdk: ^3.10.1
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.verveads.verve_ads
+        pluginClass: VerveAdsPlugin
+      ios:
+        pluginClass: VerveAdsPlugin
