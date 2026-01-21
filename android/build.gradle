@@ -1,4 +1,8 @@
+group 'com.verveads.verve_ads'
+version '1.0-SNAPSHOT'
+
 buildscript {
+    ext.kotlin_version = '1.8.0'
     repositories {
         google()
         mavenCentral()
@@ -7,7 +11,7 @@ buildscript {
 
     dependencies {
         classpath 'com.android.tools.build:gradle:7.3.1'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
@@ -17,4 +21,50 @@ allprojects {
         mavenCentral()
         maven { url 'https://verve.jfrog.io/artifactory/verve-gradle-release' }
     }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    if (project.android.hasProperty("namespace")) {
+        namespace 'com.verveads.verve_ads'
+    }
+
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    packagingOptions {
+        exclude 'META-INF/proguard/androidx-*.pro'
+        exclude 'META-INF/proguard/kotlin-stdlib.pro'
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+
+    // HyBid SDK from Verve
+    implementation 'net.pubnative:hybid.sdk:3.7.1'
+    implementation 'net.pubnative:hybid.adapters.dfp:3.7.1'
+    implementation 'net.pubnative:hybid.adapters.admob:3.7.1'
+
+    // Android Support
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.12.0'
 }
