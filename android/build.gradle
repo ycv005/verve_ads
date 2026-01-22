@@ -60,9 +60,9 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
 
     // HyBid SDK from Verve
-    implementation 'net.pubnative:hybid.sdk:3.7.1'
-    implementation 'net.pubnative:hybid.adapters.dfp:3.7.1'
-    implementation 'net.pubnative:hybid.adapters.admob:3.7.1'
+    implementation 'net.pubnative:hybid.sdk:3.6.2'
+    implementation 'net.pubnative:hybid.adapters.dfp:3.6.2'
+    implementation 'net.pubnative:hybid.adapters.admob:3.6.2'
 
     // Android Support
     implementation 'androidx.appcompat:appcompat:1.6.1'
