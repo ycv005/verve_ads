@@ -1,44 +1,46 @@
 package com.verveads.verve_ads
 
+import android.app.Application
 import android.content.Context
 import android.util.Log
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.engine.dart.DartExecutor
-import io.flutter.embedding.engine.FlutterJNI
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodChannel.MethodCallHandler
+import io.flutter.plugin.common.MethodChannel.Result
 import net.pubnative.lite.sdk.HyBid
 
 /**
  * Verve Ads Flutter Plugin - Android Implementation
  * Wrapper for HyBid SDK on Android platform
  */
-class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
+class VerveAdsPlugin : FlutterPlugin, MethodCallHandler {
   companion object {
     const val CHANNEL = "com.verveads/verve_ads"
     const val TAG = "VerveAdsPlugin"
+    const val SDK_VERSION = "3.7.1" // HyBid SDK version we're using
   }
 
   private lateinit var channel: MethodChannel
   private lateinit var context: Context
   private var isInitialized = false
+  private var userConsentStatus = false // Track consent locally
 
-  override fun onAttachedToEngine(binding: io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding) {
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     context = binding.applicationContext
     channel = MethodChannel(binding.binaryMessenger, CHANNEL)
-    channel.setMethodCallHandler { call, result ->
-      handleMethodCall(call, result)
-    }
+    channel.setMethodCallHandler(this)
   }
 
-  override fun onDetachedFromEngine(binding: io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding) {
+  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
   }
 
-  private fun handleMethodCall(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  override fun onMethodCall(call: MethodCall, result: Result) {
     when (call.method) {
       "initialize" -> initialize(call, result)
       "isInitialized" -> result.success(isInitialized)
-      "getSdkVersion" -> result.success(HyBid.getSDKVersion())
+      "getSdkVersion" -> result.success(SDK_VERSION)
       "requestAd" -> requestAd(call, result)
       "isAdReady" -> isAdReady(call, result)
       "showAd" -> showAd(call, result)
@@ -49,7 +51,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
       "setCoppaEnabled" -> setCoppaEnabled(call, result)
       "clearAdCache" -> clearAdCache(call, result)
       "getDeviceId" -> getDeviceId(result)
-      "getUserConsentStatus" -> result.success(HyBid.getUserConsentStatus())
+      "getUserConsentStatus" -> result.success(userConsentStatus)
       "setUserConsentStatus" -> setUserConsentStatus(call, result)
       "getPlatformVersion" -> result.success("Android ${android.os.Build.VERSION.RELEASE}")
       "getDiagnostics" -> getDiagnostics(result)
@@ -57,15 +59,21 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun initialize(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun initialize(call: MethodCall, result: Result) {
     try {
       val appToken = call.argument<String>("appToken") ?: run {
         result.success(errorResponse(400, "appToken is required"))
         return
       }
 
-      // Initialize HyBid SDK
-      HyBid.initialize(appToken, context)
+      // Get Application context for HyBid initialization
+      val application = context.applicationContext as? Application ?: run {
+        result.success(errorResponse(500, "Could not get Application context"))
+        return
+      }
+
+      // Initialize HyBid SDK with Application context
+      HyBid.initialize(appToken, application)
 
       // Apply configuration
       val testMode = call.argument<Boolean>("testMode") ?: false
@@ -96,7 +104,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun requestAd(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun requestAd(call: MethodCall, result: Result) {
     try {
       val placementId = call.argument<String>("placementId") ?: run {
         result.success(errorResponse(400, "placementId is required"))
@@ -122,7 +130,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun isAdReady(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun isAdReady(call: MethodCall, result: Result) {
     try {
       val placementId = call.argument<String>("placementId") ?: run {
         result.success(false)
@@ -136,7 +144,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun showAd(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun showAd(call: MethodCall, result: Result) {
     try {
       val placementId = call.argument<String>("placementId") ?: run {
         result.success(errorResponse(400, "placementId is required"))
@@ -151,7 +159,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setTargetingParams(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setTargetingParams(call: MethodCall, result: Result) {
     try {
       val age = call.argument<String>("age")
       val gender = call.argument<String>("gender")
@@ -169,7 +177,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setCustomUserData(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setCustomUserData(call: MethodCall, result: Result) {
     try {
       @Suppress("UNCHECKED_CAST")
       val userData = call.argument<Map<String, Any>>("userData") as? Map<String, Any> ?: emptyMap()
@@ -183,7 +191,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setTestMode(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setTestMode(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: false
       HyBid.setTestMode(enabled)
@@ -195,7 +203,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setLocationTrackingEnabled(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setLocationTrackingEnabled(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: true
       HyBid.setLocationTrackingEnabled(enabled)
@@ -207,7 +215,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setCoppaEnabled(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setCoppaEnabled(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: false
       HyBid.setCoppaEnabled(enabled)
@@ -219,7 +227,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun clearAdCache(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun clearAdCache(call: MethodCall, result: Result) {
     try {
       // Implement cache clearing logic
       result.success(successResponse(200))
@@ -230,7 +238,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun getDeviceId(result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun getDeviceId(result: Result) {
     try {
       val deviceId = android.provider.Settings.Secure.getString(
           context.contentResolver,
@@ -243,10 +251,12 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setUserConsentStatus(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setUserConsentStatus(call: MethodCall, result: Result) {
     try {
       val consent = call.argument<Boolean>("consent") ?: false
-      HyBid.setUserConsentStatus(consent)
+      userConsentStatus = consent
+      // Note: HyBid uses TCF 2.0 or GDPR consent string for compliance
+      // This is a simplified boolean consent tracking
       result.success(successResponse(200))
       Log.d(TAG, "User consent set to: $consent")
     } catch (e: Exception) {
@@ -255,11 +265,11 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun getDiagnostics(result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun getDiagnostics(result: Result) {
     try {
       val diagnostics = mapOf(
           "isInitialized" to isInitialized,
-          "sdkVersion" to HyBid.getSDKVersion(),
+          "sdkVersion" to SDK_VERSION,
           "testMode" to HyBid.isTestMode(),
           "platform" to "Android",
           "deviceId" to (android.provider.Settings.Secure.getString(
