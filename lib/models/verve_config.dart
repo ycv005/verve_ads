@@ -7,11 +7,11 @@ class VerveConfig {
   /// When enabled, impressions and clicks won't count towards your account
   final bool testMode;
 
-  /// Enable location tracking (default: true)
+  /// Enable location tracking (default: false)
   /// Improves ad targeting with user location
   final bool locationTrackingEnabled;
 
-  /// Enable location updates (default: true)
+  /// Enable location updates (default: false)
   /// Keeps location accuracy by refreshing after each ad request
   final bool locationUpdatesEnabled;
 
@@ -34,8 +34,8 @@ class VerveConfig {
   const VerveConfig({ 
     required this.appToken,
     this.testMode = false,
-    this.locationTrackingEnabled = true,
-    this.locationUpdatesEnabled = true,
+    this.locationTrackingEnabled = false,
+    this.locationUpdatesEnabled = false,
     this.coppaEnabled = false,
     this.age,
     this.gender,

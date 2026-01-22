@@ -77,8 +77,8 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler {
 
       // Apply configuration
       val testMode = call.argument<Boolean>("testMode") ?: false
-      val locationTrackingEnabled = call.argument<Boolean>("locationTrackingEnabled") ?: true
-      val locationUpdatesEnabled = call.argument<Boolean>("locationUpdatesEnabled") ?: true
+      val locationTrackingEnabled = call.argument<Boolean>("locationTrackingEnabled") ?: false
+      val locationUpdatesEnabled = call.argument<Boolean>("locationUpdatesEnabled") ?: false
       val coppaEnabled = call.argument<Boolean>("coppaEnabled") ?: false
 
       HyBid.setTestMode(testMode)
