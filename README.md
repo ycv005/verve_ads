@@ -29,7 +29,7 @@ Add to your `pubspec.yaml`:
 dependencies:
   verve_ads:
     git:
-      url: https://github.com/yourusername/verve_ads.git
+      url: https://github.com/ycv005/verve_ads.git
       ref: main
 ```
 
