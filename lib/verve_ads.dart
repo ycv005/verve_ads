@@ -10,12 +10,14 @@ import 'models/verve_config.dart';
 import 'models/verve_response.dart';
 import 'models/ad_request.dart';
 import 'models/ad_model.dart';
+import 'models/ad_event.dart';
 
 // Export all public classes and enums
 export 'models/verve_config.dart';
 export 'models/verve_response.dart';
 export 'models/ad_request.dart';
 export 'models/ad_model.dart';
+export 'models/ad_event.dart';
 
 /// Main Verve Ads plugin class - provides API for ad integration
 class VerveAds {
@@ -52,14 +54,41 @@ class VerveAds {
     return VerveAdsPlatform.instance.requestAd(adRequest);
   }
 
-  /// Check if an ad is ready to be shown for the given placement
-  Future<bool> isAdReady(String placementId) {
-    return VerveAdsPlatform.instance.isAdReady(placementId);
+  /// Check if an ad is ready to be shown for the given zone ID
+  Future<bool> isAdReady(String zoneId) {
+    return VerveAdsPlatform.instance.isAdReady(zoneId);
   }
 
-  /// Show ad for the given placement ID
-  Future<VerveResponse<void>> showAd(String placementId) {
-    return VerveAdsPlatform.instance.showAd(placementId);
+  /// Show ad for the given zone ID
+  Future<VerveResponse<void>> showAd(String zoneId) {
+    return VerveAdsPlatform.instance.showAd(zoneId);
+  }
+
+  /// Destroy ad for the given zone ID (cleanup resources)
+  /// Call this when you no longer need the ad
+  Future<VerveResponse<void>> destroyAd(String zoneId) {
+    return VerveAdsPlatform.instance.destroyAd(zoneId);
+  }
+
+  /// Stream of ad events from the native platform
+  /// Use this to listen for ad lifecycle events like:
+  /// - loaded: Ad finished loading
+  /// - loadFailed: Ad failed to load
+  /// - impression: Ad was displayed
+  /// - click: User clicked the ad
+  /// - reward: User earned a reward (rewarded ads)
+  /// - dismissed/closed: Ad was closed
+  ///
+  /// Example:
+  /// ```dart
+  /// verveAds.adEvents.listen((event) {
+  ///   if (event.type == AdEventType.reward) {
+  ///     grantUserReward(event.rewardAmount);
+  ///   }
+  /// });
+  /// ```
+  Stream<AdEvent> get adEvents {
+    return VerveAdsPlatform.instance.adEvents;
   }
 
   /// Set user targeting parameters (age, gender, keywords)

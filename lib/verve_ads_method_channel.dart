@@ -6,12 +6,32 @@ import 'models/verve_config.dart';
 import 'models/verve_response.dart';
 import 'models/ad_request.dart';
 import 'models/ad_model.dart';
+import 'models/ad_event.dart';
 
 /// An implementation of [VerveAdsPlatform] that uses method channels.
 class MethodChannelVerveAds extends VerveAdsPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('com.verveads/verve_ads');
+
+  /// The event channel for receiving ad events from native platform.
+  @visibleForTesting
+  final eventChannel = const EventChannel('com.verveads/verve_ads_events');
+
+  /// Cached stream of ad events from the native platform
+  Stream<AdEvent>? _adEventStream;
+
+  /// Stream of ad events from the native platform.
+  /// Use this to listen for ad lifecycle events like impressions, clicks, rewards.
+  @override
+  Stream<AdEvent> get adEvents {
+    _adEventStream ??= eventChannel.receiveBroadcastStream().map((event) {
+      return AdEvent.fromMap(Map<dynamic, dynamic>.from(event as Map));
+    }).handleError((error) {
+      debugPrint('Error receiving ad event: $error');
+    });
+    return _adEventStream!;
+  }
 
   /// Private helper to handle platform exceptions and convert to VerveResponse
   Future<VerveResponse<T>> _handleMethodCall<T>(
@@ -100,10 +120,10 @@ class MethodChannelVerveAds extends VerveAdsPlatform {
   }
 
   @override
-  Future<bool> isAdReady(String placementId) async {
+  Future<bool> isAdReady(String zoneId) async {
     try {
       final result = await methodChannel.invokeMethod<bool>('isAdReady', {
-        'placementId': placementId,
+        'zoneId': zoneId,
       });
       return result ?? false;
     } catch (e) {
@@ -113,9 +133,17 @@ class MethodChannelVerveAds extends VerveAdsPlatform {
   }
 
   @override
-  Future<VerveResponse<void>> showAd(String placementId) async {
+  Future<VerveResponse<void>> showAd(String zoneId) async {
     return _handleMethodCall<void>(
-      () => methodChannel.invokeMethod('showAd', {'placementId': placementId}),
+      () => methodChannel.invokeMethod('showAd', {'zoneId': zoneId}),
+      null,
+    );
+  }
+
+  @override
+  Future<VerveResponse<void>> destroyAd(String zoneId) async {
+    return _handleMethodCall<void>(
+      () => methodChannel.invokeMethod('destroyAd', {'zoneId': zoneId}),
       null,
     );
   }

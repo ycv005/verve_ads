@@ -28,7 +28,7 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +41,7 @@ class MyApp extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -51,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final verveAds = VerveAds();
   String _statusMessage = 'Ready';
   VerveAd? _currentAd;
+  String? _currentZoneId; // Store zone ID for showAd
   bool _isLoading = false;
 
   @override
@@ -81,8 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _statusMessage = 'Requesting banner ad...';
     });
 
+    const zoneId = '2'; // Replace with your banner zone ID from HyBid dashboard
     final adRequest = AdRequest(
-      placementId: 'placement_banner_1',
+      zoneId: zoneId,
       adFormat: AdFormat.banner,
       timeoutMs: 10000,
     );
@@ -93,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _isLoading = false;
       if (response.isSuccess && response.data != null) {
         _currentAd = response.data;
+        _currentZoneId = zoneId;
         _statusMessage =
             'Banner Ad Received: ${response.data!.title ?? "Untitled"}';
       } else {
@@ -108,8 +111,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _statusMessage = 'Requesting native ad...';
     });
 
+    const zoneId = '3'; // Replace with your native zone ID from HyBid dashboard
     final adRequest = AdRequest(
-      placementId: 'placement_native_1',
+      zoneId: zoneId,
       adFormat: AdFormat.native,
       timeoutMs: 15000,
       customParameters: {'zone': 'premium', 'inventory_type': 'highvalue'},
@@ -121,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _isLoading = false;
       if (response.isSuccess && response.data != null) {
         _currentAd = response.data;
+        _currentZoneId = zoneId;
         _statusMessage =
             'Native Ad Received: ${response.data!.title ?? "Untitled"}';
       } else {
@@ -136,8 +141,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _statusMessage = 'Requesting interstitial ad...';
     });
 
+    const zoneId = '4'; // Replace with your interstitial zone ID from HyBid dashboard
     final adRequest = AdRequest(
-      placementId: 'placement_interstitial_1',
+      zoneId: zoneId,
       adFormat: AdFormat.interstitial,
     );
 
@@ -147,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _isLoading = false;
       if (response.isSuccess && response.data != null) {
         _currentAd = response.data;
+        _currentZoneId = zoneId;
         _statusMessage = 'Interstitial Ad Received';
         // Auto-show interstitial
         _showCurrentAd();
@@ -158,15 +165,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showCurrentAd() async {
-    if (_currentAd == null) {
+    if (_currentAd == null || _currentZoneId == null) {
       _showSnackbar('No ad loaded');
       return;
     }
 
-    final response = await verveAds.showAd(_currentAd!.adId);
+    // Use zoneId to show the ad (HyBid requires zone ID, not ad ID)
+    final response = await verveAds.showAd(_currentZoneId!);
 
     if (response.isSuccess) {
       _showSnackbar('Ad displayed successfully');
+      setState(() {
+        _currentAd = null;
+        _currentZoneId = null;
+      });
     } else {
       _showSnackbar('Failed to show ad: ${response.errorMessage}');
     }

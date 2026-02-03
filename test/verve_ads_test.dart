@@ -26,10 +26,10 @@ class MockVerveAdsPlatform
   );
 
   @override
-  Future<bool> isAdReady(String placementId) => Future.value(false);
+  Future<bool> isAdReady(String zoneId) => Future.value(false);
 
   @override
-  Future<VerveResponse<void>> showAd(String placementId) =>
+  Future<VerveResponse<void>> showAd(String zoneId) =>
       Future.value(VerveResponse.success());
 
   @override
@@ -76,6 +76,13 @@ class MockVerveAdsPlatform
   @override
   Future<Map<String, dynamic>> getDiagnostics() =>
       Future.value({'status': 'ok'});
+
+  @override
+  Future<VerveResponse<void>> destroyAd(String zoneId) =>
+      Future.value(VerveResponse.success());
+
+  @override
+  Stream<AdEvent> get adEvents => const Stream.empty();
 }
 
 void main() {
