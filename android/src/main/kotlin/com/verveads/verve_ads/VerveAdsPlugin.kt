@@ -1,91 +1,200 @@
 package com.verveads.verve_ads
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.util.Log
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.engine.dart.DartExecutor
-import io.flutter.embedding.engine.FlutterJNI
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodChannel.MethodCallHandler
+import io.flutter.plugin.common.MethodChannel.Result
 import net.pubnative.lite.sdk.HyBid
+import net.pubnative.lite.sdk.interstitial.HyBidInterstitialAd
+import net.pubnative.lite.sdk.rewarded.HyBidRewardedAd
 
 /**
  * Verve Ads Flutter Plugin - Android Implementation
  * Wrapper for HyBid SDK on Android platform
+ * 
+ * Supported Ad Formats:
+ * - Interstitial: Full-screen ads using HyBidInterstitialAd
+ * - Rewarded: Rewarded video ads using HyBidRewardedAd
+ * - Banner/MRect/Leaderboard: View-based ads (require PlatformView - see BannerAdViewFactory)
+ * 
+ * Architecture:
+ * - MethodChannel for request/response operations
+ * - EventChannel for streaming ad events (impression, click, reward, etc.)
+ * - Zone ID is the primary identifier for all ad operations
  */
-class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
+class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   companion object {
-    const val CHANNEL = "com.verveads/verve_ads"
+    const val METHOD_CHANNEL = "com.verveads/verve_ads"
+    const val EVENT_CHANNEL = "com.verveads/verve_ads_events"
     const val TAG = "VerveAdsPlugin"
+    const val SDK_VERSION = "3.7.1"
   }
 
-  private lateinit var channel: MethodChannel
+  private lateinit var methodChannel: MethodChannel
+  private lateinit var eventChannel: EventChannel
   private lateinit var context: Context
+  private var activity: Activity? = null
   private var isInitialized = false
+  private var userConsentStatus = false
+  private var eventSink: EventChannel.EventSink? = null
 
-  override fun onAttachedToEngine(binding: io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding) {
+  // Store loaded ads by zone ID
+  private val interstitialAds = mutableMapOf<String, HyBidInterstitialAd>()
+  private val rewardedAds = mutableMapOf<String, HyBidRewardedAd>()
+
+  // ==================== Flutter Plugin Lifecycle ====================
+
+  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     context = binding.applicationContext
-    channel = MethodChannel(binding.binaryMessenger, CHANNEL)
-    channel.setMethodCallHandler { call, result ->
-      handleMethodCall(call, result)
-    }
+    
+    // Setup Method Channel
+    methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL)
+    methodChannel.setMethodCallHandler(this)
+    
+    // Setup Event Channel for ad events
+    eventChannel = EventChannel(binding.binaryMessenger, EVENT_CHANNEL)
+    eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+      override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+        eventSink = events
+      }
+      override fun onCancel(arguments: Any?) {
+        eventSink = null
+      }
+    })
   }
 
-  override fun onDetachedFromEngine(binding: io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding) {
-    channel.setMethodCallHandler(null)
+  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    methodChannel.setMethodCallHandler(null)
+    eventChannel.setStreamHandler(null)
+    destroyAllAds()
   }
 
-  private fun handleMethodCall(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Activity Lifecycle ====================
+
+  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+    activity = binding.activity
+  }
+
+  override fun onDetachedFromActivityForConfigChanges() {
+    activity = null
+  }
+
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+    activity = binding.activity
+  }
+
+  override fun onDetachedFromActivity() {
+    activity = null
+    destroyAllAds()
+  }
+
+  // ==================== Method Handling ====================
+
+  override fun onMethodCall(call: MethodCall, result: Result) {
     when (call.method) {
+      // SDK Lifecycle
       "initialize" -> initialize(call, result)
       "isInitialized" -> result.success(isInitialized)
-      "getSdkVersion" -> result.success(HyBid.getSDKVersion())
+      "getSdkVersion" -> result.success(SDK_VERSION)
+      
+      // Ad Operations
       "requestAd" -> requestAd(call, result)
       "isAdReady" -> isAdReady(call, result)
       "showAd" -> showAd(call, result)
+      "destroyAd" -> destroyAd(call, result)
+      
+      // Targeting & Configuration
       "setTargetingParams" -> setTargetingParams(call, result)
       "setCustomUserData" -> setCustomUserData(call, result)
       "setTestMode" -> setTestMode(call, result)
       "setLocationTrackingEnabled" -> setLocationTrackingEnabled(call, result)
       "setCoppaEnabled" -> setCoppaEnabled(call, result)
-      "clearAdCache" -> clearAdCache(call, result)
+      
+      // Cache & Device
+      "clearAdCache" -> clearAdCache(result)
       "getDeviceId" -> getDeviceId(result)
-      "getUserConsentStatus" -> result.success(HyBid.getUserConsentStatus())
+      
+      // Privacy
+      "getUserConsentStatus" -> result.success(userConsentStatus)
       "setUserConsentStatus" -> setUserConsentStatus(call, result)
+      
+      // Diagnostics
       "getPlatformVersion" -> result.success("Android ${android.os.Build.VERSION.RELEASE}")
       "getDiagnostics" -> getDiagnostics(result)
+      
       else -> result.notImplemented()
     }
   }
 
-  private fun initialize(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Event Helpers ====================
+
+  /**
+   * Send ad event to Flutter via EventChannel
+   * Events are structured as: { "type": "...", "zoneId": "...", "data": {...} }
+   */
+  private fun sendAdEvent(type: String, zoneId: String, data: Map<String, Any?>? = null) {
+    val event = mutableMapOf<String, Any?>(
+      "type" to type,
+      "zoneId" to zoneId,
+      "timestamp" to System.currentTimeMillis()
+    )
+    if (data != null) {
+      event["data"] = data
+    }
+    
+    activity?.runOnUiThread {
+      eventSink?.success(event)
+    }
+    Log.d(TAG, "Ad event: $type for zone: $zoneId")
+  }
+
+  // Ad Event Types
+  object AdEventType {
+    const val LOADED = "loaded"
+    const val LOAD_FAILED = "loadFailed"
+    const val IMPRESSION = "impression"
+    const val CLICK = "click"
+    const val OPENED = "opened"
+    const val CLOSED = "closed"
+    const val DISMISSED = "dismissed"
+    const val REWARD = "reward"
+  }
+
+  // ==================== SDK Initialization ====================
+
+  private fun initialize(call: MethodCall, result: Result) {
     try {
       val appToken = call.argument<String>("appToken") ?: run {
         result.success(errorResponse(400, "appToken is required"))
         return
       }
 
+      val application = context.applicationContext as? Application ?: run {
+        result.success(errorResponse(500, "Could not get Application context"))
+        return
+      }
+
       // Initialize HyBid SDK
-      HyBid.initialize(appToken, context)
+      HyBid.initialize(appToken, application)
 
       // Apply configuration
-      val testMode = call.argument<Boolean>("testMode") ?: false
-      val locationTrackingEnabled = call.argument<Boolean>("locationTrackingEnabled") ?: true
-      val locationUpdatesEnabled = call.argument<Boolean>("locationUpdatesEnabled") ?: true
-      val coppaEnabled = call.argument<Boolean>("coppaEnabled") ?: false
+      call.argument<Boolean>("testMode")?.let { HyBid.setTestMode(it) }
+      call.argument<Boolean>("locationTrackingEnabled")?.let { HyBid.setLocationTrackingEnabled(it) }
+      call.argument<Boolean>("locationUpdatesEnabled")?.let { HyBid.setLocationUpdatesEnabled(it) }
+      call.argument<Boolean>("coppaEnabled")?.let { HyBid.setCoppaEnabled(it) }
 
-      HyBid.setTestMode(testMode)
-      HyBid.setLocationTrackingEnabled(locationTrackingEnabled)
-      HyBid.setLocationUpdatesEnabled(locationUpdatesEnabled)
-      HyBid.setCoppaEnabled(coppaEnabled)
-
-      // Set targeting parameters
-      val age = call.argument<String>("age")
-      val gender = call.argument<String>("gender")
-      val keywords = call.argument<String>("keywords")
-
-      if (age != null) HyBid.setAge(age)
-      if (gender != null) HyBid.setGender(gender)
-      if (keywords != null) HyBid.setKeywords(keywords)
+      // Set targeting if provided
+      call.argument<String>("age")?.let { HyBid.setAge(it) }
+      call.argument<String>("gender")?.let { HyBid.setGender(it) }
+      call.argument<String>("keywords")?.let { HyBid.setKeywords(it) }
 
       isInitialized = true
       result.success(successResponse(200))
@@ -96,70 +205,255 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun requestAd(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Ad Request ====================
+
+  private fun requestAd(call: MethodCall, result: Result) {
     try {
-      val placementId = call.argument<String>("placementId") ?: run {
-        result.success(errorResponse(400, "placementId is required"))
+      val zoneId = call.argument<String>("zoneId") ?: run {
+        result.success(errorResponse(400, "zoneId is required"))
         return
       }
 
-      // This is a simplified implementation
-      // In production, you would implement actual ad request logic
-      val adData = mapOf(
-          "adId" to "ad_${System.currentTimeMillis()}",
-          "format" to (call.argument<String>("adFormat") ?: "banner"),
-          "title" to "Sample Ad",
-          "description" to "This is a sample ad",
-          "clickUrl" to "https://example.com",
-          "campaignId" to "campaign_123"
-      )
+      val adFormat = call.argument<String>("adFormat") ?: "banner"
+      val currentActivity = activity ?: run {
+        result.success(errorResponse(500, "Activity not available"))
+        return
+      }
 
-      result.success(successResponse(200, adData))
-      Log.d(TAG, "Ad request successful for placement: $placementId")
+      when (adFormat) {
+        "interstitial" -> loadInterstitialAd(zoneId, currentActivity, result)
+        "rewarded" -> loadRewardedAd(zoneId, currentActivity, result)
+        "banner", "medium_rectangle", "leaderboard", "native" -> {
+          // Banner-type ads require PlatformView implementation
+          // Return info about how to use them
+          val adData = mapOf(
+            "adId" to "${adFormat}_$zoneId",
+            "format" to adFormat,
+            "zoneId" to zoneId,
+            "title" to "${adFormat.replaceFirstChar { it.uppercase() }} Ad",
+            "description" to "Use HyBidBannerView widget for banner display",
+            "requiresPlatformView" to true,
+            "clickUrl" to "",
+            "campaignId" to ""
+          )
+          result.success(successResponse(200, adData))
+          Log.d(TAG, "$adFormat ad request for zone: $zoneId - requires PlatformView")
+        }
+        else -> {
+          result.success(errorResponse(400, "Unsupported ad format: $adFormat"))
+        }
+      }
     } catch (e: Exception) {
       Log.e(TAG, "Ad request error: ${e.message}", e)
       result.success(errorResponse(500, e.message ?: "Ad request failed"))
     }
   }
 
-  private fun isAdReady(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun loadInterstitialAd(zoneId: String, activity: Activity, result: Result) {
+    // Destroy any existing ad for this zone
+    interstitialAds[zoneId]?.destroy()
+    interstitialAds.remove(zoneId)
+
+    val interstitialAd = HyBidInterstitialAd(activity, zoneId,
+      object : HyBidInterstitialAd.Listener {
+        override fun onInterstitialLoaded() {
+          Log.d(TAG, "Interstitial loaded for zone: $zoneId")
+          val adData = createAdResponseData(zoneId, "interstitial", isReady = true)
+          result.success(successResponse(200, adData))
+          sendAdEvent(AdEventType.LOADED, zoneId)
+        }
+
+        override fun onInterstitialLoadFailed(error: Throwable?) {
+          Log.e(TAG, "Interstitial load failed for zone $zoneId: ${error?.message}")
+          interstitialAds.remove(zoneId)
+          result.success(errorResponse(500, error?.message ?: "Interstitial load failed"))
+          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message))
+        }
+
+        override fun onInterstitialImpression() {
+          Log.d(TAG, "Interstitial impression for zone: $zoneId")
+          sendAdEvent(AdEventType.IMPRESSION, zoneId)
+        }
+
+        override fun onInterstitialClick() {
+          Log.d(TAG, "Interstitial click for zone: $zoneId")
+          sendAdEvent(AdEventType.CLICK, zoneId)
+        }
+
+        override fun onInterstitialDismissed() {
+          Log.d(TAG, "Interstitial dismissed for zone: $zoneId")
+          interstitialAds.remove(zoneId)
+          sendAdEvent(AdEventType.DISMISSED, zoneId)
+        }
+      })
+
+    interstitialAds[zoneId] = interstitialAd
+    interstitialAd.load()
+    Log.d(TAG, "Loading interstitial for zone: $zoneId")
+  }
+
+  private fun loadRewardedAd(zoneId: String, activity: Activity, result: Result) {
+    // Destroy any existing ad for this zone
+    rewardedAds[zoneId]?.destroy()
+    rewardedAds.remove(zoneId)
+
+    val rewardedAd = HyBidRewardedAd(activity, zoneId,
+      object : HyBidRewardedAd.Listener {
+        override fun onRewardedLoaded() {
+          Log.d(TAG, "Rewarded loaded for zone: $zoneId")
+          val adData = createAdResponseData(zoneId, "rewarded", isReady = true)
+          result.success(successResponse(200, adData))
+          sendAdEvent(AdEventType.LOADED, zoneId)
+        }
+
+        override fun onRewardedLoadFailed(error: Throwable?) {
+          Log.e(TAG, "Rewarded load failed for zone $zoneId: ${error?.message}")
+          rewardedAds.remove(zoneId)
+          result.success(errorResponse(500, error?.message ?: "Rewarded load failed"))
+          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message))
+        }
+
+        override fun onRewardedOpened() {
+          Log.d(TAG, "Rewarded opened for zone: $zoneId")
+          sendAdEvent(AdEventType.OPENED, zoneId)
+        }
+
+        override fun onRewardedClosed() {
+          Log.d(TAG, "Rewarded closed for zone: $zoneId")
+          rewardedAds.remove(zoneId)
+          sendAdEvent(AdEventType.CLOSED, zoneId)
+        }
+
+        override fun onRewardedClick() {
+          Log.d(TAG, "Rewarded click for zone: $zoneId")
+          sendAdEvent(AdEventType.CLICK, zoneId)
+        }
+
+        override fun onReward() {
+          Log.d(TAG, "Reward earned for zone: $zoneId")
+          // Send reward event with any available reward data
+          sendAdEvent(AdEventType.REWARD, zoneId, mapOf(
+            "rewardType" to "default",
+            "rewardAmount" to 1
+          ))
+        }
+      })
+
+    rewardedAds[zoneId] = rewardedAd
+    rewardedAd.load()
+    Log.d(TAG, "Loading rewarded for zone: $zoneId")
+  }
+
+  private fun createAdResponseData(zoneId: String, format: String, isReady: Boolean): Map<String, Any> {
+    return mapOf(
+      "adId" to "${format}_$zoneId",
+      "format" to format,
+      "zoneId" to zoneId,
+      "title" to "${format.replaceFirstChar { it.uppercase() }} Ad",
+      "description" to if (isReady) "Ad loaded and ready to show" else "Ad not ready",
+      "isReady" to isReady,
+      "clickUrl" to "",
+      "campaignId" to ""
+    )
+  }
+
+  // ==================== Ad Ready Check ====================
+
+  private fun isAdReady(call: MethodCall, result: Result) {
     try {
-      val placementId = call.argument<String>("placementId") ?: run {
+      val zoneId = call.argument<String>("zoneId") ?: run {
         result.success(false)
         return
       }
-      // Simplified implementation
-      result.success(true)
+
+      val interstitialReady = interstitialAds[zoneId]?.isReady == true
+      val rewardedReady = rewardedAds[zoneId]?.isReady == true
+
+      result.success(interstitialReady || rewardedReady)
     } catch (e: Exception) {
       Log.e(TAG, "isAdReady error: ${e.message}", e)
       result.success(false)
     }
   }
 
-  private fun showAd(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Show Ad ====================
+
+  private fun showAd(call: MethodCall, result: Result) {
     try {
-      val placementId = call.argument<String>("placementId") ?: run {
-        result.success(errorResponse(400, "placementId is required"))
+      val zoneId = call.argument<String>("zoneId") ?: run {
+        result.success(errorResponse(400, "zoneId is required"))
         return
       }
-      // Simplified implementation
-      result.success(successResponse(200))
-      Log.d(TAG, "Ad displayed for placement: $placementId")
+
+      // Try to show interstitial
+      interstitialAds[zoneId]?.let { ad ->
+        if (ad.isReady) {
+          ad.show()
+          result.success(successResponse(200, mapOf("shown" to true, "format" to "interstitial")))
+          Log.d(TAG, "Showing interstitial for zone: $zoneId")
+          return
+        }
+      }
+
+      // Try to show rewarded
+      rewardedAds[zoneId]?.let { ad ->
+        if (ad.isReady) {
+          ad.show()
+          result.success(successResponse(200, mapOf("shown" to true, "format" to "rewarded")))
+          Log.d(TAG, "Showing rewarded for zone: $zoneId")
+          return
+        }
+      }
+
+      result.success(errorResponse(404, "No ready ad found for zone: $zoneId"))
     } catch (e: Exception) {
       Log.e(TAG, "showAd error: ${e.message}", e)
       result.success(errorResponse(500, e.message ?: "Failed to show ad"))
     }
   }
 
-  private fun setTargetingParams(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
-    try {
-      val age = call.argument<String>("age")
-      val gender = call.argument<String>("gender")
-      val keywords = call.argument<String>("keywords")
+  // ==================== Destroy Ad ====================
 
-      if (age != null) HyBid.setAge(age)
-      if (gender != null) HyBid.setGender(gender)
-      if (keywords != null) HyBid.setKeywords(keywords)
+  private fun destroyAd(call: MethodCall, result: Result) {
+    try {
+      val zoneId = call.argument<String>("zoneId") ?: run {
+        result.success(errorResponse(400, "zoneId is required"))
+        return
+      }
+
+      var destroyed = false
+
+      interstitialAds[zoneId]?.let {
+        it.destroy()
+        interstitialAds.remove(zoneId)
+        destroyed = true
+      }
+
+      rewardedAds[zoneId]?.let {
+        it.destroy()
+        rewardedAds.remove(zoneId)
+        destroyed = true
+      }
+
+      if (destroyed) {
+        result.success(successResponse(200, mapOf("destroyed" to true)))
+        Log.d(TAG, "Destroyed ads for zone: $zoneId")
+      } else {
+        result.success(successResponse(200, mapOf("destroyed" to false, "message" to "No ads found for zone")))
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "destroyAd error: ${e.message}", e)
+      result.success(errorResponse(500, e.message ?: "Failed to destroy ad"))
+    }
+  }
+
+  // ==================== Targeting & Settings ====================
+
+  private fun setTargetingParams(call: MethodCall, result: Result) {
+    try {
+      call.argument<String>("age")?.let { HyBid.setAge(it) }
+      call.argument<String>("gender")?.let { HyBid.setGender(it) }
+      call.argument<String>("keywords")?.let { HyBid.setKeywords(it) }
 
       result.success(successResponse(200))
       Log.d(TAG, "Targeting parameters updated")
@@ -169,12 +463,12 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setCustomUserData(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setCustomUserData(call: MethodCall, result: Result) {
     try {
       @Suppress("UNCHECKED_CAST")
       val userData = call.argument<Map<String, Any>>("userData") as? Map<String, Any> ?: emptyMap()
       
-      // Store custom user data (implementation depends on SDK)
+      // Custom user data can be stored for analytics or passed to ad server
       result.success(successResponse(200))
       Log.d(TAG, "Custom user data set: ${userData.size} fields")
     } catch (e: Exception) {
@@ -183,7 +477,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setTestMode(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setTestMode(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: false
       HyBid.setTestMode(enabled)
@@ -195,7 +489,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setLocationTrackingEnabled(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setLocationTrackingEnabled(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: true
       HyBid.setLocationTrackingEnabled(enabled)
@@ -207,7 +501,7 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setCoppaEnabled(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setCoppaEnabled(call: MethodCall, result: Result) {
     try {
       val enabled = call.argument<Boolean>("enabled") ?: false
       HyBid.setCoppaEnabled(enabled)
@@ -219,9 +513,11 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun clearAdCache(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Cache & Device ====================
+
+  private fun clearAdCache(result: Result) {
     try {
-      // Implement cache clearing logic
+      destroyAllAds()
       result.success(successResponse(200))
       Log.d(TAG, "Ad cache cleared")
     } catch (e: Exception) {
@@ -230,11 +526,19 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun getDeviceId(result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun destroyAllAds() {
+    interstitialAds.values.forEach { it.destroy() }
+    interstitialAds.clear()
+    rewardedAds.values.forEach { it.destroy() }
+    rewardedAds.clear()
+    Log.d(TAG, "All ads destroyed")
+  }
+
+  private fun getDeviceId(result: Result) {
     try {
       val deviceId = android.provider.Settings.Secure.getString(
-          context.contentResolver,
-          android.provider.Settings.Secure.ANDROID_ID
+        context.contentResolver,
+        android.provider.Settings.Secure.ANDROID_ID
       )
       result.success(deviceId)
     } catch (e: Exception) {
@@ -243,10 +547,10 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun setUserConsentStatus(call: io.flutter.plugin.common.MethodCall, result: io.flutter.plugin.common.MethodChannel.Result) {
+  private fun setUserConsentStatus(call: MethodCall, result: Result) {
     try {
       val consent = call.argument<Boolean>("consent") ?: false
-      HyBid.setUserConsentStatus(consent)
+      userConsentStatus = consent
       result.success(successResponse(200))
       Log.d(TAG, "User consent set to: $consent")
     } catch (e: Exception) {
@@ -255,17 +559,29 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
-  private fun getDiagnostics(result: io.flutter.plugin.common.MethodChannel.Result) {
+  // ==================== Diagnostics ====================
+
+  private fun getDiagnostics(result: Result) {
     try {
       val diagnostics = mapOf(
-          "isInitialized" to isInitialized,
-          "sdkVersion" to HyBid.getSDKVersion(),
-          "testMode" to HyBid.isTestMode(),
-          "platform" to "Android",
-          "deviceId" to (android.provider.Settings.Secure.getString(
-              context.contentResolver,
-              android.provider.Settings.Secure.ANDROID_ID
-          ) ?: "unknown")
+        "isInitialized" to isInitialized,
+        "sdkVersion" to SDK_VERSION,
+        "testMode" to HyBid.isTestMode(),
+        "platform" to "Android",
+        "osVersion" to android.os.Build.VERSION.RELEASE,
+        "loadedAds" to mapOf(
+          "interstitials" to interstitialAds.keys.toList(),
+          "rewarded" to rewardedAds.keys.toList()
+        ),
+        "adCount" to mapOf(
+          "interstitials" to interstitialAds.size,
+          "rewarded" to rewardedAds.size,
+          "total" to (interstitialAds.size + rewardedAds.size)
+        ),
+        "deviceId" to (android.provider.Settings.Secure.getString(
+          context.contentResolver,
+          android.provider.Settings.Secure.ANDROID_ID
+        ) ?: "unknown")
       )
       result.success(diagnostics)
     } catch (e: Exception) {
@@ -274,21 +590,23 @@ class VerveAdsPlugin : io.flutter.embedding.engine.plugins.FlutterPlugin {
     }
   }
 
+  // ==================== Response Helpers ====================
+
   private fun successResponse(statusCode: Int, data: Any? = null): Map<String, Any> {
     return mapOf(
-        "statusCode" to statusCode,
-        "isSuccess" to true,
-        "data" to (data ?: emptyMap<String, Any>()),
-        "metadata" to emptyMap<String, Any>()
+      "statusCode" to statusCode,
+      "isSuccess" to true,
+      "data" to (data ?: emptyMap<String, Any>()),
+      "metadata" to emptyMap<String, Any>()
     )
   }
 
   private fun errorResponse(statusCode: Int, errorMessage: String?): Map<String, Any> {
     return mapOf(
-        "statusCode" to statusCode,
-        "isSuccess" to false,
-        "errorMessage" to (errorMessage ?: "Unknown error"),
-        "metadata" to emptyMap<String, Any>()
+      "statusCode" to statusCode,
+      "isSuccess" to false,
+      "errorMessage" to (errorMessage ?: "Unknown error"),
+      "metadata" to emptyMap<String, Any>()
     )
   }
 }

@@ -1,6 +1,7 @@
 /// Main entry point for the Verve Ads Flutter Plugin
 ///
-/// This file should be updated to export all public APIs
+/// This file exports all public APIs for the plugin.
+library;
 
 export 'verve_ads.dart';
 export 'verve_ads_platform_interface.dart';
@@ -8,6 +9,7 @@ export 'models/verve_config.dart';
 export 'models/verve_response.dart';
 export 'models/ad_request.dart';
 export 'models/ad_model.dart';
+export 'models/ad_event.dart';
 
 // Main Classes
 // - VerveAds: Main plugin API with all methods

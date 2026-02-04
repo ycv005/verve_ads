@@ -4,6 +4,7 @@ import 'models/verve_config.dart';
 import 'models/verve_response.dart';
 import 'models/ad_request.dart';
 import 'models/ad_model.dart';
+import 'models/ad_event.dart';
 import 'verve_ads_method_channel.dart';
 
 abstract class VerveAdsPlatform extends PlatformInterface {
@@ -47,14 +48,25 @@ abstract class VerveAdsPlatform extends PlatformInterface {
     throw UnimplementedError('requestAd() has not been implemented.');
   }
 
-  /// Check if ad is ready for given placement ID
-  Future<bool> isAdReady(String placementId) {
+  /// Check if ad is ready for given zone ID
+  Future<bool> isAdReady(String zoneId) {
     throw UnimplementedError('isAdReady() has not been implemented.');
   }
 
-  /// Show ad for given placement ID
-  Future<VerveResponse<void>> showAd(String placementId) {
+  /// Show ad for given zone ID
+  Future<VerveResponse<void>> showAd(String zoneId) {
     throw UnimplementedError('showAd() has not been implemented.');
+  }
+
+  /// Destroy ad for given zone ID (cleanup resources)
+  Future<VerveResponse<void>> destroyAd(String zoneId) {
+    throw UnimplementedError('destroyAd() has not been implemented.');
+  }
+
+  /// Stream of ad events (impressions, clicks, rewards, etc.)
+  /// Listen to this stream to receive ad lifecycle events
+  Stream<AdEvent> get adEvents {
+    throw UnimplementedError('adEvents has not been implemented.');
   }
 
   /// Set user targeting parameters

@@ -77,8 +77,12 @@ enum AdRequestStatus {
 
 /// Model for ad request parameters
 class AdRequest {
-  /// Unique identifier for this ad placement
-  final String placementId;
+  /// Zone ID from PubNative/HyBid Publisher Dashboard (required)
+  /// This is the primary identifier used by HyBid SDK to load ads
+  final String zoneId;
+
+  /// Unique identifier for this ad placement (optional, for app-side tracking)
+  final String? placementId;
 
   /// Ad format to request
   final AdFormat adFormat;
@@ -96,7 +100,8 @@ class AdRequest {
   final int maxRetries;
 
   AdRequest({
-    required this.placementId,
+    required this.zoneId,
+    this.placementId,
     required this.adFormat,
     this.timeoutMs = 10000,
     this.customParameters,
@@ -106,7 +111,8 @@ class AdRequest {
 
   Map<String, dynamic> toMap() {
     return {
-      'placementId': placementId,
+      'zoneId': zoneId,
+      'placementId': placementId ?? zoneId,
       'adFormat': adFormat.value,
       'timeoutMs': timeoutMs,
       'customParameters': customParameters ?? {},
@@ -118,7 +124,7 @@ class AdRequest {
   @override
   String toString() =>
       'AdRequest('
-      'placementId: $placementId, '
+      'zoneId: $zoneId, '
       'format: ${adFormat.value}, '
       'timeout: ${timeoutMs}ms'
       ')';

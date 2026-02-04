@@ -29,7 +29,7 @@ Add to your `pubspec.yaml`:
 dependencies:
   verve_ads:
     git:
-      url: https://github.com/yourusername/verve_ads.git
+      url: https://github.com/ycv005/verve_ads.git
       ref: main
 ```
 
@@ -67,11 +67,13 @@ void main() async {
 
 ### 3. Request and Display Ads
 
+The HyBid SDK requires a **Zone ID** for requesting ads. You can get your Zone IDs from the [Verve Publisher Dashboard](https://publishers.verve.com).
+
 ```dart
-// Request an ad
+// Request an ad with zone ID
 final adRequest = AdRequest(
-  placementId: 'placement_123',
-  adFormat: AdFormat.native,
+  zoneId: '2',  // Your zone ID from HyBid dashboard
+  adFormat: AdFormat.interstitial,
 );
 
 final adResponse = await verveAds.requestAd(adRequest);
@@ -80,12 +82,48 @@ if (adResponse.isSuccess && adResponse.data != null) {
   final ad = adResponse.data!;
   print('✓ Ad received: ${ad.title}');
   
-  // Show the ad
-  await verveAds.showAd('placement_123');
+  // Show the ad using the same zone ID
+  await verveAds.showAd('2');
 } else {
   print('✗ Failed to get ad: ${adResponse.errorMessage}');
   print('Status Code: ${adResponse.statusCode.code}');
 }
+```
+
+### 4. Listen for Ad Events (Impressions, Clicks, Rewards)
+
+The plugin provides an event stream for tracking ad lifecycle events. This is essential for rewarded ads:
+
+```dart
+// Listen for ad events
+verveAds.adEvents.listen((event) {
+  switch (event.type) {
+    case AdEventType.loaded:
+      print('✓ Ad loaded for zone: ${event.zoneId}');
+      break;
+    case AdEventType.impression:
+      print('📢 Ad impression recorded');
+      break;
+    case AdEventType.click:
+      print('👆 User clicked the ad');
+      break;
+    case AdEventType.reward:
+      // Grant reward to user
+      final rewardAmount = event.rewardAmount ?? 1;
+      grantUserReward(rewardAmount);
+      print('🎁 User earned reward: $rewardAmount');
+      break;
+    case AdEventType.dismissed:
+    case AdEventType.closed:
+      print('✖ Ad closed');
+      break;
+    case AdEventType.loadFailed:
+      print('❌ Ad load failed: ${event.errorMessage}');
+      break;
+    default:
+      break;
+  }
+});
 ```
 
 ## Advanced Usage
@@ -154,22 +192,36 @@ if (!hasConsent) {
 }
 ```
 
-### Ad Request with Custom Parameters
+### Ad Request with Zone ID and Custom Parameters
+
+> **Important**: The `zoneId` is required for all ad requests. You can get zone IDs from the [Verve Publisher Dashboard](https://publishers.verve.com).
 
 ```dart
-final adRequest = AdRequest(
-  placementId: 'placement_456',
+// Interstitial ad request
+final interstitialRequest = AdRequest(
+  zoneId: '4',  // Your interstitial zone ID
   adFormat: AdFormat.interstitial,
-  timeoutMs: 15000,  // 15 second timeout
+  timeoutMs: 15000,
   customParameters: {
-    'zone_id': 'zone_premium',
     'inventory_type': 'highvalue',
   },
   retryEnabled: true,
   maxRetries: 3,
 );
 
-final response = await verveAds.requestAd(adRequest);
+// Rewarded ad request
+final rewardedRequest = AdRequest(
+  zoneId: '5',  // Your rewarded zone ID
+  adFormat: AdFormat.rewarded,
+);
+
+// Banner ad request
+final bannerRequest = AdRequest(
+  zoneId: '2',  // Your banner zone ID
+  adFormat: AdFormat.banner,
+);
+
+final response = await verveAds.requestAd(interstitialRequest);
 ```
 
 ### Response Handling
@@ -284,12 +336,13 @@ Configuration for SDK initialization.
 Parameters for requesting an ad.
 
 **Properties:**
-- `placementId` (String) - Unique placement identifier
+- `zoneId` (String, required) - Zone ID from HyBid Publisher Dashboard
+- `placementId` (String?) - Optional placement identifier for app-side tracking
 - `adFormat` (AdFormat) - Ad format type
-- `timeoutMs` (int) - Request timeout in milliseconds
+- `timeoutMs` (int) - Request timeout in milliseconds (default: 10000)
 - `customParameters` (Map?) - Custom parameters
-- `retryEnabled` (bool) - Enable retry on failure
-- `maxRetries` (int) - Maximum retry attempts
+- `retryEnabled` (bool) - Enable retry on failure (default: true)
+- `maxRetries` (int) - Maximum retry attempts (default: 2)
 
 ### `VerveAd`
 Represents a received ad.

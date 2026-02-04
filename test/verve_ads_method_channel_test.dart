@@ -6,7 +6,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   MethodChannelVerveAds platform = MethodChannelVerveAds();
-  const MethodChannel channel = MethodChannel('verve_ads');
+  const MethodChannel channel = MethodChannel('com.verveads/verve_ads');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
