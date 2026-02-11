@@ -3,6 +3,8 @@ package com.verveads.verve_ads
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -45,6 +47,7 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   private var isInitialized = false
   private var userConsentStatus = false
   private var eventSink: EventChannel.EventSink? = null
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   // Store loaded ads by zone ID
   private val interstitialAds = mutableMapOf<String, HyBidInterstitialAd>()
@@ -84,7 +87,13 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
-    activity = null
+    // Do NOT null out activity here.
+    // When HyBid's MraidInterstitialActivity launches, it triggers
+    // a config change detach. Nulling activity here causes the
+    // onInterstitialDismissed event to be silently dropped because
+    // sendAdEvent uses activity?.runOnUiThread which becomes a no-op.
+    // The activity reference will be updated in onReattachedToActivity.
+    Log.d(TAG, "Activity detached for config changes (keeping reference)")
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -149,9 +158,19 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     if (data != null) {
       event["data"] = data
     }
-    
-    activity?.runOnUiThread {
+
+    // Use activity.runOnUiThread if available, otherwise fall back to
+    // mainHandler.post to guarantee delivery even when the Flutter
+    // activity has been temporarily detached (e.g. during MRAID
+    // interstitial activity transitions).
+    val runnable = Runnable {
       eventSink?.success(event)
+    }
+    val currentActivity = activity
+    if (currentActivity != null) {
+      currentActivity.runOnUiThread(runnable)
+    } else {
+      mainHandler.post(runnable)
     }
     Log.d(TAG, "Ad event: $type for zone: $zoneId")
   }
@@ -282,8 +301,21 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
         override fun onInterstitialDismissed() {
           Log.d(TAG, "Interstitial dismissed for zone: $zoneId")
-          interstitialAds.remove(zoneId)
+          // Send the dismissed event FIRST, before any cleanup.
+          // This ensures the Flutter side receives the event and can
+          // resume its UI flow (dismiss the loading indicator).
           sendAdEvent(AdEventType.DISMISSED, zoneId)
+
+          // Defer cleanup to allow the HyBid SDK to finish its own
+          // internal teardown of the MRAID WebView / interstitial
+          // activity. Removing the ad reference immediately during
+          // this callback can cause premature GC of the native ad
+          // object, leading to "webview is destroyed" errors and
+          // leaving the Flutter UI stuck on a loading spinner.
+          mainHandler.postDelayed({
+            interstitialAds.remove(zoneId)?.destroy()
+            Log.d(TAG, "Deferred cleanup complete for zone: $zoneId")
+          }, 500)
         }
       })
 
