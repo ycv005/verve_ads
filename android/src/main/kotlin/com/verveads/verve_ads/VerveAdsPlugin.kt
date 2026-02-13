@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 import net.pubnative.lite.sdk.HyBid
 import net.pubnative.lite.sdk.interstitial.HyBidInterstitialAd
 import net.pubnative.lite.sdk.rewarded.HyBidRewardedAd
+import net.pubnative.lite.sdk.HyBidError
 
 /**
  * Verve Ads Flutter Plugin - Android Implementation
@@ -38,6 +39,68 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     const val EVENT_CHANNEL = "com.verveads/verve_ads_events"
     const val TAG = "VerveAdsPlugin"
     const val SDK_VERSION = "3.7.1"
+  }
+
+  // ==================== Error Code Constants ====================
+  // Real HyBid SDK error codes (1–25) from HyBidErrorCode.java:
+  //   https://github.com/pubnative/pubnative-hybid-android-sdk/blob/main/
+  //   hybid.sdk/src/main/java/net/pubnative/lite/sdk/HyBidErrorCode.java
+  //
+  // Plugin-level codes (100+) for errors originating in our layer.
+
+  object VerveErrorCode {
+    // ── HyBid SDK error codes (1–25) ────────────────────────────
+    const val NO_FILL = 1
+    const val PARSER_ERROR = 2
+    const val SERVER_ERROR = 3
+    const val INVALID_ASSET = 4
+    const val UNSUPPORTED_ASSET = 5
+    const val NULL_AD = 6
+    const val INVALID_AD = 7
+    const val INVALID_ZONE_ID = 8
+    const val INVALID_SIGNAL_DATA = 9   // also OUT_OF_MEMORY, INVALID_VIEW_BINDER
+    const val NOT_INITIALISED = 10
+    const val AUCTION_NO_AD = 11
+    const val ERROR_RENDERING_BANNER = 12
+    const val ERROR_RENDERING_INTERSTITIAL = 13
+    const val ERROR_RENDERING_REWARDED = 14
+    const val MRAID_PLAYER_ERROR = 15
+    const val VAST_PLAYER_ERROR = 16
+    const val ERROR_TRACKING_URL = 17
+    const val ERROR_TRACKING_JS = 18
+    const val INVALID_URL = 19
+    const val INTERNAL_ERROR = 20
+    const val UNKNOWN_ERROR = 21
+    const val DISABLED_FORMAT = 22
+    const val DISABLED_RENDERING_ENGINE = 23
+    const val EXPIRED_AD = 24
+    const val ERROR_LOADING_FEEDBACK = 25
+
+    // ── Plugin-level error codes (100+) ─────────────────────────
+    const val MISSING_REQUIRED_PARAMETER = 100
+    const val UNSUPPORTED_AD_FORMAT = 101
+    const val ACTIVITY_NOT_AVAILABLE = 102
+    const val AD_NOT_READY = 103
+    const val APPLICATION_CONTEXT_UNAVAILABLE = 104
+    const val PLUGIN_EXCEPTION = 105
+    const val UNKNOWN = 999
+
+    /**
+     * Extract the real HyBid error code from a load-failure [Throwable].
+     *
+     * The HyBid SDK passes [HyBidError] instances (which wrap [HyBidErrorCode])
+     * to the onLoadFailed callbacks. We cast to [HyBidError] and read
+     * [HyBidErrorCode.getCode()] to get the native integer.
+     *
+     * Falls back to [UNKNOWN_ERROR] if the throwable is not a [HyBidError].
+     */
+    fun extractFromThrowable(error: Throwable?): Int {
+      if (error is HyBidError) {
+        return error.errorCode?.code ?: UNKNOWN_ERROR
+      }
+      // Fallback: not a HyBidError, return generic unknown
+      return UNKNOWN_ERROR
+    }
   }
 
   private lateinit var methodChannel: MethodChannel
@@ -192,12 +255,12 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   private fun initialize(call: MethodCall, result: Result) {
     try {
       val appToken = call.argument<String>("appToken") ?: run {
-        result.success(errorResponse(400, "appToken is required"))
+        result.success(errorResponse(400, "appToken is required", VerveErrorCode.MISSING_REQUIRED_PARAMETER))
         return
       }
 
       val application = context.applicationContext as? Application ?: run {
-        result.success(errorResponse(500, "Could not get Application context"))
+        result.success(errorResponse(500, "Could not get Application context", VerveErrorCode.APPLICATION_CONTEXT_UNAVAILABLE))
         return
       }
 
@@ -220,7 +283,7 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
       Log.d(TAG, "HyBid SDK initialized successfully")
     } catch (e: Exception) {
       Log.e(TAG, "Initialization error: ${e.message}", e)
-      result.success(errorResponse(500, e.message ?: "Unknown initialization error"))
+      result.success(errorResponse(500, e.message ?: "Unknown initialization error", VerveErrorCode.PLUGIN_EXCEPTION))
     }
   }
 
@@ -229,13 +292,13 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   private fun requestAd(call: MethodCall, result: Result) {
     try {
       val zoneId = call.argument<String>("zoneId") ?: run {
-        result.success(errorResponse(400, "zoneId is required"))
+        result.success(errorResponse(400, "zoneId is required", VerveErrorCode.MISSING_REQUIRED_PARAMETER))
         return
       }
 
       val adFormat = call.argument<String>("adFormat") ?: "banner"
       val currentActivity = activity ?: run {
-        result.success(errorResponse(500, "Activity not available"))
+        result.success(errorResponse(500, "Activity not available", VerveErrorCode.ACTIVITY_NOT_AVAILABLE))
         return
       }
 
@@ -259,12 +322,12 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
           Log.d(TAG, "$adFormat ad request for zone: $zoneId - requires PlatformView")
         }
         else -> {
-          result.success(errorResponse(400, "Unsupported ad format: $adFormat"))
+          result.success(errorResponse(400, "Unsupported ad format: $adFormat", VerveErrorCode.UNSUPPORTED_AD_FORMAT))
         }
       }
     } catch (e: Exception) {
       Log.e(TAG, "Ad request error: ${e.message}", e)
-      result.success(errorResponse(500, e.message ?: "Ad request failed"))
+      result.success(errorResponse(500, e.message ?: "Ad request failed", VerveErrorCode.PLUGIN_EXCEPTION))
     }
   }
 
@@ -283,10 +346,11 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
 
         override fun onInterstitialLoadFailed(error: Throwable?) {
-          Log.e(TAG, "Interstitial load failed for zone $zoneId: ${error?.message}")
+          val errCode = VerveErrorCode.extractFromThrowable(error)
+          Log.e(TAG, "Interstitial load failed for zone $zoneId [errorCode=$errCode]: ${error?.message}")
           interstitialAds.remove(zoneId)
-          result.success(errorResponse(500, error?.message ?: "Interstitial load failed"))
-          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message))
+          result.success(errorResponse(500, error?.message ?: "Interstitial load failed", errCode))
+          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message, "errorCode" to errCode))
         }
 
         override fun onInterstitialImpression() {
@@ -339,10 +403,11 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
 
         override fun onRewardedLoadFailed(error: Throwable?) {
-          Log.e(TAG, "Rewarded load failed for zone $zoneId: ${error?.message}")
+          val errCode = VerveErrorCode.extractFromThrowable(error)
+          Log.e(TAG, "Rewarded load failed for zone $zoneId [errorCode=$errCode]: ${error?.message}")
           rewardedAds.remove(zoneId)
-          result.success(errorResponse(500, error?.message ?: "Rewarded load failed"))
-          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message))
+          result.success(errorResponse(500, error?.message ?: "Rewarded load failed", errCode))
+          sendAdEvent(AdEventType.LOAD_FAILED, zoneId, mapOf("error" to error?.message, "errorCode" to errCode))
         }
 
         override fun onRewardedOpened() {
@@ -413,7 +478,7 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   private fun showAd(call: MethodCall, result: Result) {
     try {
       val zoneId = call.argument<String>("zoneId") ?: run {
-        result.success(errorResponse(400, "zoneId is required"))
+        result.success(errorResponse(400, "zoneId is required", VerveErrorCode.MISSING_REQUIRED_PARAMETER))
         return
       }
 
@@ -437,10 +502,10 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
       }
 
-      result.success(errorResponse(404, "No ready ad found for zone: $zoneId"))
+      result.success(errorResponse(404, "No ready ad found for zone: $zoneId", VerveErrorCode.AD_NOT_READY))
     } catch (e: Exception) {
       Log.e(TAG, "showAd error: ${e.message}", e)
-      result.success(errorResponse(500, e.message ?: "Failed to show ad"))
+      result.success(errorResponse(500, e.message ?: "Failed to show ad", VerveErrorCode.PLUGIN_EXCEPTION))
     }
   }
 
@@ -449,7 +514,7 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
   private fun destroyAd(call: MethodCall, result: Result) {
     try {
       val zoneId = call.argument<String>("zoneId") ?: run {
-        result.success(errorResponse(400, "zoneId is required"))
+        result.success(errorResponse(400, "zoneId is required", VerveErrorCode.MISSING_REQUIRED_PARAMETER))
         return
       }
 
@@ -475,7 +540,7 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
       }
     } catch (e: Exception) {
       Log.e(TAG, "destroyAd error: ${e.message}", e)
-      result.success(errorResponse(500, e.message ?: "Failed to destroy ad"))
+      result.success(errorResponse(500, e.message ?: "Failed to destroy ad", VerveErrorCode.PLUGIN_EXCEPTION))
     }
   }
 
@@ -633,11 +698,12 @@ class VerveAdsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     )
   }
 
-  private fun errorResponse(statusCode: Int, errorMessage: String?): Map<String, Any> {
+  private fun errorResponse(statusCode: Int, errorMessage: String?, errorCode: Int = VerveErrorCode.UNKNOWN): Map<String, Any> {
     return mapOf(
       "statusCode" to statusCode,
       "isSuccess" to false,
       "errorMessage" to (errorMessage ?: "Unknown error"),
+      "errorCode" to errorCode,
       "metadata" to emptyMap<String, Any>()
     )
   }

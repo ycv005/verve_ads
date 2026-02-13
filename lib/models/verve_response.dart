@@ -1,3 +1,5 @@
+import 'verve_error_code.dart';
+
 /// HTTP status code enum following standard HTTP convention
 enum HttpStatusCode {
   /// 200 OK - Request succeeded
@@ -64,6 +66,12 @@ class VerveResponse<T> {
   /// Error message if operation failed
   final String? errorMessage;
 
+  /// Verve-specific numeric error code (see [VerveErrorCode]).
+  /// Non-null only when [isSuccess] is false.
+  /// Use [VerveErrorCode.nameOf] to get a human-readable label,
+  /// or [VerveErrorCode.isRetryable] to decide retry strategy.
+  final int? errorCode;
+
   /// Additional metadata about the request
   final Map<String, dynamic>? metadata;
 
@@ -75,6 +83,7 @@ class VerveResponse<T> {
     this.isSuccess = true,
     this.data,
     this.errorMessage,
+    this.errorCode,
     this.metadata,
     this.rawResponse,
   });
@@ -98,6 +107,7 @@ class VerveResponse<T> {
   /// Create error response
   factory VerveResponse.error({
     required String errorMessage,
+    int? errorCode,
     HttpStatusCode statusCode = HttpStatusCode.internalServerError,
     Map<String, dynamic>? metadata,
     dynamic rawResponse,
@@ -106,10 +116,26 @@ class VerveResponse<T> {
       statusCode: statusCode,
       isSuccess: false,
       errorMessage: errorMessage,
+      errorCode: errorCode,
       metadata: metadata,
       rawResponse: rawResponse,
     );
   }
+
+  /// Human-readable label for [errorCode], e.g. `NO_FILL`, `LOAD_TIMEOUT`.
+  /// Returns `null` when there is no error code.
+  String? get errorCodeName =>
+      errorCode != null ? VerveErrorCode.nameOf(errorCode!) : null;
+
+  /// Whether the error is retryable (no fill, timeout, network issues).
+  /// Returns `false` when there is no error code.
+  bool get isRetryableError =>
+      errorCode != null ? VerveErrorCode.isRetryable(errorCode!) : false;
+
+  /// Whether the error is permanent (bad config, missing params).
+  /// Returns `false` when there is no error code.
+  bool get isPermanentError =>
+      errorCode != null ? VerveErrorCode.isPermanent(errorCode!) : false;
 
   @override
   String toString() =>
@@ -117,6 +143,7 @@ class VerveResponse<T> {
       'statusCode: ${statusCode.code}, '
       'isSuccess: $isSuccess, '
       'hasData: ${data != null}, '
-      'error: ${errorMessage ?? "none"}'
+      'error: ${errorMessage ?? "none"}, '
+      'errorCode: ${errorCode != null ? "$errorCode ($errorCodeName)" : "none"}'
       ')';
 }

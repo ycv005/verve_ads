@@ -7,6 +7,7 @@ export 'verve_ads.dart';
 export 'verve_ads_platform_interface.dart';
 export 'models/verve_config.dart';
 export 'models/verve_response.dart';
+export 'models/verve_error_code.dart';
 export 'models/ad_request.dart';
 export 'models/ad_model.dart';
 export 'models/ad_event.dart';

@@ -15,6 +15,7 @@ import 'models/ad_event.dart';
 // Export all public classes and enums
 export 'models/verve_config.dart';
 export 'models/verve_response.dart';
+export 'models/verve_error_code.dart';
 export 'models/ad_request.dart';
 export 'models/ad_model.dart';
 export 'models/ad_event.dart';
