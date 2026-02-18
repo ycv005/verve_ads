@@ -45,6 +45,7 @@ class MethodChannelVerveAds extends VerveAdsPlatform {
         final statusCode = HttpStatusCode.fromCode(result['statusCode'] ?? 200);
         final isSuccess = result['isSuccess'] ?? true;
         final errorMessage = result['errorMessage'] as String?;
+        final errorCode = result['errorCode'] as int?;
         final metadata = Map<String, dynamic>.from(result['metadata'] ?? {});
 
         if (isSuccess) {
@@ -60,6 +61,7 @@ class MethodChannelVerveAds extends VerveAdsPlatform {
         } else {
           return VerveResponse.error(
             errorMessage: errorMessage ?? 'Unknown error',
+            errorCode: errorCode,
             statusCode: statusCode,
             metadata: metadata,
             rawResponse: result,
