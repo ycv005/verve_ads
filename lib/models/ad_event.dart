@@ -105,6 +105,15 @@ class AdEvent {
     );
   }
 
+  /// Verve numeric error code from load-failed events.
+  /// See [VerveErrorCode] for the full list of codes.
+  int? get errorCode {
+    if (type == AdEventType.loadFailed) {
+      return data?['errorCode'] as int?;
+    }
+    return null;
+  }
+
   /// Get error message from load failed event
   String? get errorMessage {
     if (type == AdEventType.loadFailed) {
