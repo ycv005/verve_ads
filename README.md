@@ -1,3 +1,5 @@
+
+
 # Verve Ads Flutter Plugin
 
 A comprehensive, production-ready Flutter plugin for integrating Verve (HyBid) SDK. This plugin provides a configurable and scalable wrapper with full support for native ad formats, real-time ad tracking, and complete monetization capabilities.
@@ -445,7 +447,7 @@ allprojects {
 
 ### "No fill" (No ads available)
 - Check if test mode is enabled
-- Verify placement ID is correct
+- Verify zone ID is correct
 - Ensure app is in an approved geography
 
 ### "Rate limited" (429)
